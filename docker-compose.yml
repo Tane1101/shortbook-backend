@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  # 1. バックエンドアプリのコンテナ設定
+  app:
+    build: .
+    ports:
+      - "8080:8080" # Macの8080番とコンテナの8080番を繋ぐ
+    env_file:
+      - .env
+    environment:
+      # ★ ここでDBの接続先を「db」というコンテナ名に指定する
+      - DB_HOST=db
+      - DB_NAME=shortbook_db
+      - DB_USER=postgres
+      - DB_PORT=5432
+    depends_on:
+      - db # DBコンテナが先に起動するのを待つ
+
+  # 2. データベースのコンテナ設定
+  db:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432" # Macの5432番とコンテナの5432番を繋ぐ
+    environment:
+      - POSTGRES_DB=shortbook_db
+      - POSTGRES_HOST_AUTH_METHOD=trust # ローカル開発用にパスワードなしで接続許可
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata: # Macを再起動してもデータが消えないようにする記憶領域
