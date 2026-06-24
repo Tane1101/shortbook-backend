@@ -27,63 +27,59 @@ type Story struct {
 var DB *gorm.DB
 
 func main() {
-	// --- 2.データベース接続（環境変数対応版）---
-	//doker-composeから指定されたDB_HOST(db)を読み込む。無ければlocalhostにする。
-	dbHost := os.Getenv("DB_HOST")
-	if dbHost == "" {
-		dbHost = "localhost"
-	}
-	
-	// ★ 追加：パスワードをシステム（.env または Secret Manager）から読み込む
-	dbPassword := os.Getenv("DB_PASSWORD")
+    // --- 1. データベース接続（ローカル＆Render両対応版）---
+    var dsn string
+    databaseURL := os.Getenv("DATABASE_URL")
 
-	var dsn string
-	// DB_HOSTが「localhost」か「db」の場合はローカル環境（ポート指定あり）
-	if dbHost == "localhost" || dbHost == "db" {
-		dsn = fmt.Sprintf("host=%s dbname=shortbook_db port=5432 sslmode=disable user=postgres password=%s", dbHost, dbPassword)
-	} else {
-		// 本番環境（Cloud Run -> Cloud SQL）の場合はポート指定なしでUnixソケット通信
-		dsn = fmt.Sprintf("host=%s dbname=shortbook_db sslmode=disable user=postgres password=%s", dbHost, dbPassword)
-	}
+    if databaseURL != "" {
+        // Render本番環境
+        dsn = databaseURL
+        fmt.Println("🚀 本番環境(Render)のデータベースに接続します")
+    } else {
+        // ローカル環境
+        dbHost := os.Getenv("DB_HOST")
+        if dbHost == "" {
+            dbHost = "localhost"
+        }
+        dbPassword := os.Getenv("DB_PASSWORD")
+        dsn = fmt.Sprintf("host=%s dbname=shortbook_db port=5432 sslmode=disable user=postgres password=%s", dbHost, dbPassword)
+        fmt.Println("💻 ローカル環境のデータベースに接続します")
+    }
 
-	var err error
-	// データベースが起きるまで最大10回ノックする（リトライ処理）
-	for i := 0; i < 10; i++ {
-		DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
-		if err == nil {
-			break
-		}
-		fmt.Printf("DB接続待ち... (%d/10)\n", i+1)
-		time.Sleep(1 * time.Second)
-	}
+    var err error
+    for i := 0; i < 10; i++ {
+        DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+        if err == nil {
+            break
+        }
+        fmt.Printf("DB接続待ち... (%d/10)\n", i+1)
+        time.Sleep(1 * time.Second)
+    }
 
-	if err != nil {
-		log.Fatal("データベースへの接続に完全に失敗しました:", err)
-	}
-	fmt.Println("✅ データベース接続成功！ (接続先:", dbHost, ")")
+    if err != nil {
+        log.Fatal("データベースへの接続に完全に失敗しました:", err)
+    }
+    fmt.Println("✅ データベース接続成功！")
 
-	// 一度既存のテーブル（データ）を完全に破壊してリセットする
-	//DB.Migrator().DropTable(&User{}, &Story{})
+    // -----------------------------------------------------
+    // 👇 ここから下が、あなたが元々持っていた「構築ロジック」です！
+    // -----------------------------------------------------
 
-	// テーブルの自動作成（新品の空っぽのテーブルが作られる）
-	DB.AutoMigrate(&User{}, &Story{})
+    // --- 2. データベースの構築（テーブルの作成など） ---
+    // もし「毎回初期化（破壊）」したかった場合は、これの前に DB.Migrator().DropTable(...) 等を入れます。
+    err = DB.AutoMigrate(&User{}, &Story{})
+    if err != nil {
+        log.Fatal("テーブルの作成に失敗しました:", err)
+    }
+    fmt.Println("✅ データベースのテーブル構築完了！")
 
-	//初期データの自動登録（シード）
-	seedStories()
+    // --- 3. ルーティング（APIの受付設定） ---
+    r := gin.Default()
+    
+    // (ここに r.GET や r.POST などのエンドポイントの処理を書く)
 
-	// --- 3. Webサーバー（API）の構築 ---
-	r := gin.Default()
-
-	// iPhoneから「物語をちょうだい」と言われた時の窓口
-	r.GET("/stories", func(c *gin.Context) {
-		var stories []Story
-		// ★データベースからすべての物語を「IDの昇順（順番通り）」で取得
-		DB.Order("id asc").Find(&stories)
-		// 取得した物語をJSON形式でiPhoneに返す
-		c.JSON(200, stories)
-	})
-
-	r.Run(":8080")
+    // サーバー起動！
+    r.Run() 
 }
 
 // データベースに初期データを投入する関数
