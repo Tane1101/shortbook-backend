@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"time"
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -84,20 +86,17 @@ func main() {
 		//データベースからすべての物語をIDの順番通りに取ってくる
 		DB.Order("id asc").Find(&stories)
 
-		// データベース（金庫）からすべての物語を「IDの順番通り（昇順）」に取ってくる
-        DB.Order("id asc").Find(&stories)
-
         // 取ってきた物語データを、iPhoneが読める「JSON形式」に変換して、ステータス200（成功）で送り返す！
-        c.JSON(200, stories)
+        c.JSON(http.StatusOK, stories)
 	})
-	
+
     // (ここに r.GET や r.POST などのエンドポイントの処理を書く)
     // サーバー起動！
 	//Renderが指定したポート番号を読み込む(無ければ8080にする)
-	port := os.Getenv("PORT")
-	if port == ""{
-		port = "8080"
-	}
+		port := os.Getenv("PORT")
+		if port == ""{
+			port = "8080"
+		}
     r.Run(":" + port) 
 }
 
@@ -476,17 +475,26 @@ func seedStories() {
 	}
 
 	for _, story := range initialStories {
-		var existingStory Story
-		// タイトルでデータベースを検索
-		if err := DB.Where(Story{Title: story.Title}).First(&existingStory).Error; err != nil {
-			// まだ無ければ新しく保存
-			DB.Create(&story)
-		} else {
-			// 既に保存していれば内容を更新
-			existingStory.Target = story.Target
-			existingStory.Content = story.Content
-			DB.Save(&existingStory)
-		}
-	}
-	fmt.Println("✅ エピソードのデータ投入完了！")
+        var existingStory Story
+        
+        // タイトルでデータベースを検索
+        if err := DB.Where(Story{Title: story.Title}).First(&existingStory).Error; err != nil {
+            // まだ無ければ新しく保存（実行と同時にエラーチェック！）
+            if err := DB.Create(&story).Error; err != nil {
+                log.Printf("データの作成に失敗しました (%s): %v\n", story.Title, err)
+            }
+        } else {
+            // 既に保存していれば内容を更新
+            existingStory.Target = story.Target
+            existingStory.Content = story.Content
+            
+            // 変更を保存（実行と同時にエラーチェック！）
+            if err := DB.Save(&existingStory).Error; err != nil {
+                log.Printf("データの更新に失敗しました (%s): %v\n", story.Title, err)
+            }
+        }
+    }
+
+    // ループを抜け出した後、最後に1回だけ完了メッセージを出す
+    fmt.Println("エピソードのデータ投入完了！")
 }
