@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"os"
 	"time"
 
@@ -24,6 +25,12 @@ type Story struct {
 	Title   string
 	Target  string
 	Content string
+}
+
+type Favorite struct {
+	ID        uint `gorm:"primaryKey"`
+	UserID    uint //誰が
+	StoryID   uint//どの物語に良いねをしたか
 }
 
 var DB *gorm.DB
@@ -67,7 +74,7 @@ func main() {
     // データのリセットのロジック
     // -----------------------------------------------------
     //データベースの構築（テーブルの作成など）
-    err = DB.AutoMigrate(&User{}, &Story{})
+    err = DB.AutoMigrate(&User{}, &Story{} ,&Favorite{})
     if err != nil {
         log.Fatal("テーブルの作成に失敗しました:", err)
     }
@@ -89,6 +96,45 @@ func main() {
         // 取ってきた物語データを、iPhoneが読める「JSON形式」に変換して、ステータス200（成功）で送り返す！
         c.JSON(http.StatusOK, stories)
 	})
+
+	// =====================================================
+    // 自分がいいねした物語の一覧を返す窓口
+    // =====================================================
+    r.GET("/favorites", func(c *gin.Context) {
+        userID := uint(1) // ※今はログイン機能がないので、仮のユーザーID「1番」を固定で使います
+        var stories []Story
+        
+        // Favorite(いいね)テーブルとStory(物語)テーブルを合体させ、自分がいいねしたデータだけを抜き出す！
+        DB.Joins("JOIN favorites ON favorites.story_id = stories.id").
+            Where("favorites.user_id = ?", userID).
+            Find(&stories)
+            
+        c.JSON(200, stories)
+    })
+
+    // =====================================================
+    // いいねを登録・解除する窓口
+    // =====================================================
+    r.POST("/favorites/:story_id", func(c *gin.Context) {
+        userID := uint(1)
+        storyIDStr := c.Param("story_id")
+        storyID, _ := strconv.Atoi(storyIDStr) // 文字列を数字に変換
+
+        var fav Favorite
+        // すでにこのユーザーが、この物語を「いいね」しているかデータベースを探す
+        result := DB.Where("user_id = ? AND story_id = ?", userID, storyID).First(&fav)
+
+        if result.Error == nil {
+            // 見つかった場合（すでにいいね済み） ＝ 「いいね解除」としてデータを消す！
+            DB.Delete(&fav)
+            c.JSON(200, gin.H{"message": "いいねを解除しました"})
+        } else {
+            // 見つからなかった場合 ＝ 「いいね登録」として新しくデータを作る！
+            newFav := Favorite{UserID: userID, StoryID: uint(storyID)}
+            DB.Create(&newFav)
+            c.JSON(200, gin.H{"message": "いいねを登録しました"})
+        }
+    })
 
     // (ここに r.GET や r.POST などのエンドポイントの処理を書く)
     // サーバー起動！
